@@ -9,7 +9,7 @@ jest.mock('react-native-document-picker', () => ({
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/mock/path',
   copyFile: jest.fn(),
-  downloadFile: jest.fn(() => ({ promise: Promise.resolve({ statusCode: 200 }) }))
+  downloadFile: jest.fn(() => ({promise: Promise.resolve({statusCode: 200})})),
 }));
 
 jest.mock('llama.rn', () => ({
@@ -24,7 +24,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 jest.mock('@react-native-community/netinfo', () => ({
-  fetch: jest.fn(() => Promise.resolve({ isConnected: true })),
+  fetch: jest.fn(() => Promise.resolve({isConnected: true})),
   addEventListener: jest.fn(),
 }));
 
@@ -33,8 +33,10 @@ jest.mock('react-native-sqlite-storage', () => ({
     transaction: jest.fn(callback => {
       callback({
         executeSql: jest.fn((query, params, cb) => {
-          if (cb) cb(null, { rows: { length: 0, item: () => {} } });
-        })
+          if (cb) {
+            cb(null, {rows: {length: 0, item: () => {}}});
+          }
+        }),
       });
     }),
   })),

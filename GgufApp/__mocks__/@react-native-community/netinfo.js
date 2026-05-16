@@ -1,4 +1,4 @@
 export default {
-  fetch: jest.fn(() => Promise.resolve({ isConnected: true })),
+  fetch: jest.fn(() => Promise.resolve({isConnected: true})),
   addEventListener: jest.fn(),
 };

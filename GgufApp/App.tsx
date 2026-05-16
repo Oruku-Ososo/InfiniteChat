@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -12,26 +12,34 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
-import { Colors } from 'react-native/Libraries/NewAppScreen';
+import {Colors} from 'react-native/Libraries/NewAppScreen';
 
-import { initLlama } from 'llama.rn';
+import {initLlama, LlamaContext} from 'llama.rn';
 import DocumentPicker from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import SQLite from 'react-native-sqlite-storage';
 import NetInfo from '@react-native-community/netinfo';
 
-const db = SQLite.openDatabase({ name: 'chat.db', location: 'default' }, () => {}, error => {
-  console.log(error);
-});
+const db = SQLite.openDatabase(
+  {name: 'chat.db', location: 'default'},
+  () => {},
+  error => {
+    console.log(error);
+  },
+);
 
-type Message = { role: 'system' | 'user' | 'assistant'; content: string };
+type Message = {role: 'system' | 'user' | 'assistant'; content: string};
+
+const sanitizeFilename = (filename: string): string => {
+  return filename.replace(/[^a-zA-Z0-9.\-_]/g, '');
+};
 
 function App(): React.JSX.Element {
   const isDarkMode = useColorScheme() === 'dark';
 
   const [modelPath, setModelPath] = useState<string | null>(null);
-  const [context, setContext] = useState<any>(null);
+  const [context, setContext] = useState<LlamaContext | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>('');
   const [currentResponse, setCurrentResponse] = useState<string>('');
@@ -41,7 +49,9 @@ function App(): React.JSX.Element {
 
   // Settings
   const [temperature, setTemperature] = useState<number>(0.7);
-  const [systemPrompt, setSystemPrompt] = useState<string>('You are a helpful AI assistant.');
+  const [systemPrompt, setSystemPrompt] = useState<string>(
+    'You are a helpful AI assistant.',
+  );
 
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -55,31 +65,41 @@ function App(): React.JSX.Element {
         'CREATE TABLE IF NOT EXISTS Messages (id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT, content TEXT)',
         [],
         () => console.log('Table created successfully'),
-        error => console.log('Error creating table ' + error.message)
+        error => console.log('Error creating table ' + error.message),
       );
       tx.executeSql('SELECT * FROM Messages', [], (tx, results) => {
         let rows: Message[] = [];
         for (let i = 0; i < results.rows.length; i++) {
-          rows.push({ role: results.rows.item(i).role, content: results.rows.item(i).content });
+          rows.push({
+            role: results.rows.item(i).role,
+            content: results.rows.item(i).content,
+          });
         }
         setHistory(rows);
       });
     });
 
     AsyncStorage.getItem('modelPath').then(path => {
-      if (path) setModelPath(path);
+      if (path) {
+        setModelPath(path);
+      }
     });
     AsyncStorage.getItem('temperature').then(val => {
-      if (val) setTemperature(parseFloat(val));
+      if (val) {
+        setTemperature(parseFloat(val));
+      }
     });
     AsyncStorage.getItem('systemPrompt').then(val => {
-      if (val) setSystemPrompt(val);
+      if (val) {
+        setSystemPrompt(val);
+      }
     });
   }, []);
 
   const downloadDefaultModel = async () => {
     // A placeholder small model URL
-    const url = 'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
+    const url =
+      'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf';
     const destPath = `${RNFS.DocumentDirectoryPath}/tinyllama.gguf`;
 
     setLoading(true);
@@ -107,7 +127,8 @@ function App(): React.JSX.Element {
       if (result && result.length > 0) {
         let uri = result[0].uri;
         if (uri.startsWith('content://')) {
-          const destPath = `${RNFS.DocumentDirectoryPath}/${result[0].name}`;
+          const safeName = sanitizeFilename(result[0].name || 'model.gguf');
+          const destPath = `${RNFS.DocumentDirectoryPath}/${safeName}`;
           await RNFS.copyFile(uri, destPath);
           uri = destPath;
         }
@@ -122,9 +143,16 @@ function App(): React.JSX.Element {
   };
 
   const loadModel = async () => {
-    if (!modelPath) return;
+    if (!modelPath) {
+      return;
+    }
     setLoading(true);
     try {
+      const exists = await RNFS.exists(modelPath);
+      if (!exists) {
+        console.error('Model file does not exist at path:', modelPath);
+        return;
+      }
       const llamaContext = await initLlama({
         model: modelPath,
         use_mlock: true,
@@ -133,7 +161,7 @@ function App(): React.JSX.Element {
       });
       setContext(llamaContext);
     } catch (error) {
-      console.error("Error loading model:", error);
+      console.error('Error loading model:', error);
     } finally {
       setLoading(false);
     }
@@ -153,50 +181,65 @@ function App(): React.JSX.Element {
   };
 
   const generateText = async () => {
-    if (!context || !prompt) return;
+    if (!context || !prompt) {
+      return;
+    }
 
     const userPrompt = prompt;
     setPrompt('');
     setIsGenerating(true);
     setCurrentResponse('');
 
-    const newUserMsg: Message = { role: 'user', content: userPrompt };
+    const newUserMsg: Message = {role: 'user', content: userPrompt};
     setHistory(prev => [...prev, newUserMsg]);
 
     db.transaction(tx => {
-      tx.executeSql('INSERT INTO Messages (role, content) VALUES (?, ?)', ['user', userPrompt]);
+      tx.executeSql('INSERT INTO Messages (role, content) VALUES (?, ?)', [
+        'user',
+        userPrompt,
+      ]);
     });
 
-    let fullResponse = '';
+    let fullResponseTokens: string[] = [];
 
     try {
       await context.completion(
         {
           messages: [
-            { role: 'system', content: systemPrompt },
+            {role: 'system', content: systemPrompt},
             ...history,
-            newUserMsg
+            newUserMsg,
           ],
           n_predict: 400,
           stop: ['</s>', '<|end|>', '<|eot_id|>'],
           temperature: temperature,
         },
         (data: any) => {
-          fullResponse += data.token;
-          setCurrentResponse(prev => prev + data.token);
-        }
+          fullResponseTokens.push(data.token);
+          setCurrentResponse(fullResponseTokens.join(''));
+        },
       );
 
-      const newAssistantMsg: Message = { role: 'assistant', content: fullResponse };
+      const fullResponse = fullResponseTokens.join('');
+
+      const newAssistantMsg: Message = {
+        role: 'assistant',
+        content: fullResponse,
+      };
       setHistory(prev => [...prev, newAssistantMsg]);
 
       db.transaction(tx => {
-        tx.executeSql('INSERT INTO Messages (role, content) VALUES (?, ?)', ['assistant', fullResponse]);
+        tx.executeSql('INSERT INTO Messages (role, content) VALUES (?, ?)', [
+          'assistant',
+          fullResponse,
+        ]);
       });
-
     } catch (error) {
-      console.error("Error generating text:", error);
-      const errorMsg: Message = { role: 'assistant', content: 'Error generating response.' };
+      console.error('Error generating text:', error);
+      const errorMsg: Message = {
+        role: 'assistant',
+        content: 'Error generating response.',
+      };
       setHistory(prev => [...prev, errorMsg]);
     } finally {
       setIsGenerating(false);
@@ -217,22 +260,38 @@ function App(): React.JSX.Element {
       />
       <ScrollView
         ref={scrollViewRef}
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+        onContentSizeChange={() =>
+          scrollViewRef.current?.scrollToEnd({animated: true})
+        }
         contentInsetAdjustmentBehavior="automatic"
         style={backgroundStyle}>
         <View style={styles.container}>
           <Text style={styles.title}>GGUF LLM Runner MVP</Text>
 
-          {!isConnected && <Text style={{color: 'red'}}>No internet connection</Text>}
+          {!isConnected && (
+            <Text style={{color: 'red'}}>No internet connection</Text>
+          )}
 
           <View style={styles.section}>
             <Text style={styles.subtitle}>Setup</Text>
-            <Button title="1. Download Default Model" onPress={downloadDefaultModel} disabled={loading} />
+            <Button
+              title="1. Download Default Model"
+              onPress={downloadDefaultModel}
+              disabled={loading}
+            />
             <View style={styles.spaceSmall} />
             <Button title="2. Pick GGUF Model" onPress={pickModel} />
-            {modelPath && <Text style={styles.text}>Selected: {modelPath.split('/').pop()}</Text>}
+            {modelPath && (
+              <Text style={styles.text}>
+                Selected: {modelPath.split('/').pop()}
+              </Text>
+            )}
             <View style={styles.spaceSmall} />
-            <Button title="3. Load Model" onPress={loadModel} disabled={!modelPath || loading || !!context} />
+            <Button
+              title="3. Load Model"
+              onPress={loadModel}
+              disabled={!modelPath || loading || !!context}
+            />
             {loading && <ActivityIndicator style={styles.loader} />}
             {context && <Text style={styles.success}>Model Loaded!</Text>}
           </View>
@@ -263,8 +322,18 @@ function App(): React.JSX.Element {
             </View>
 
             {history.map((msg, index) => (
-              <View key={index} style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-                <Text style={msg.role === 'user' ? styles.userText : styles.assistantText}>
+              <View
+                key={index}
+                style={[
+                  styles.messageBubble,
+                  msg.role === 'user'
+                    ? styles.userBubble
+                    : styles.assistantBubble,
+                ]}>
+                <Text
+                  style={
+                    msg.role === 'user' ? styles.userText : styles.assistantText
+                  }>
                   {msg.content}
                 </Text>
               </View>
@@ -285,9 +354,12 @@ function App(): React.JSX.Element {
               onChangeText={setPrompt}
               multiline
             />
-            <Button title="Generate" onPress={generateText} disabled={!context || isGenerating || !prompt} />
+            <Button
+              title="Generate"
+              onPress={generateText}
+              disabled={!context || isGenerating || !prompt}
+            />
           </View>
-
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -295,22 +367,54 @@ function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20 },
-  section: { marginBottom: 20, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center', color: '#000' },
-  subtitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#000' },
-  text: { marginTop: 5, fontSize: 12, color: '#555' },
-  success: { marginTop: 10, color: 'green', fontWeight: 'bold', textAlign: 'center' },
-  loader: { marginTop: 10 },
-  spaceSmall: { height: 10 },
-  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 10, marginBottom: 10, color: '#000' },
-  inputDark: { color: '#fff', borderColor: '#555' },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  messageBubble: { padding: 12, borderRadius: 10, marginBottom: 10, maxWidth: '90%' },
-  userBubble: { backgroundColor: '#007AFF', alignSelf: 'flex-end' },
-  assistantBubble: { backgroundColor: '#e5e5ea', alignSelf: 'flex-start' },
-  userText: { color: '#fff' },
-  assistantText: { color: '#000' },
+  container: {padding: 20},
+  section: {
+    marginBottom: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#000',
+  },
+  subtitle: {fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#000'},
+  text: {marginTop: 5, fontSize: 12, color: '#555'},
+  success: {
+    marginTop: 10,
+    color: 'green',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  loader: {marginTop: 10},
+  spaceSmall: {height: 10},
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+    color: '#000',
+  },
+  inputDark: {color: '#fff', borderColor: '#555'},
+  rowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  messageBubble: {
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+    maxWidth: '90%',
+  },
+  userBubble: {backgroundColor: '#007AFF', alignSelf: 'flex-end'},
+  assistantBubble: {backgroundColor: '#e5e5ea', alignSelf: 'flex-start'},
+  userText: {color: '#fff'},
+  assistantText: {color: '#000'},
 });
 
 export default App;
