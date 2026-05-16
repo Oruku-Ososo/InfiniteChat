@@ -17,7 +17,7 @@ export const loadLlamaModel = async (modelPath: string): Promise<boolean> => {
       try {
         await llamaContext.release();
       } catch (e) {
-        console.log("Could not release context or it was already released.", e);
+        console.log('Could not release context or it was already released.', e);
       }
       llamaContext = null;
     }
